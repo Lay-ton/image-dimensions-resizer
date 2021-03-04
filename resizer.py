@@ -1,6 +1,8 @@
 import os
 from PIL import Image
 
+# WARNING I HAVEN'T TESTED THIS ON MANY DIFFERENT IMAGES SO USE AT YOUR OWN
+# RISK! PLEASE LET ME KNOW IF SOMETHING NEEDS TO BE FIXED.
 
 # Default dimensions in inches
 defaults = [(14, 11), (12, 12), (18, 12), (20, 8),
@@ -21,6 +23,8 @@ def create_img_dims(source: str, dimensions=defaults, dpi=300, desination=""):
             DEFAULT: 300
     """
 
+    # This finds the file path and verifies that the save destination directory exists.
+    # If it doesn't exist then it saves to the same directory as the source.
     file_path = source.rsplit('/', 1)
     if desination:
         try:
@@ -39,9 +43,12 @@ def create_img_dims(source: str, dimensions=defaults, dpi=300, desination=""):
     # Opens the image to process
     im = Image.open(source)
 
-    # The smallest dimension of the the given image will always be the bottleneck.
-    # This puts the bottleneck dimension as the first var in originals for the sake
-    # of less if statements
+    # The smallest dimension of the the given image will typically be the bottleneck
+    # if the new dimensions proportions are smaller than the original. This puts the
+    # typical bottleneck dimension as the first var in originals for the sake of less
+    # if statements. However, if the new dimensions proportions are a bigger in the
+    # non typical dimension the code will switch to grow according to that dimension
+    # and crop the opposite.
     original = (im.width, im.height) if im.height < im.width else (
         im.height, im.width)
 
@@ -53,32 +60,54 @@ def create_img_dims(source: str, dimensions=defaults, dpi=300, desination=""):
 
         # Calcualtes the aspect ratio
         a = original[0] / original[1]
-
-        # The size in pixels of the non-bottleneck dimension
         new_v = round(a * desired[1])
 
-        # Decides which tuple is neccessary depending on W x L or L x W
-        proportions = (new_v, desired[1]) if im.height < im.width else (
-            desired[1], new_v)
+        # Here is where it's decided which dimension will be cropped according to
+        # what the proportion of the desired dimensions are.
+
+        # If the new size of non typical dimension falls short of the desired pixels,
+        # it will switch which dimension is the focus for the resize. A flag will be
+        # set to swap which dimension is getting cropped.
+        if new_v < desired[0]:
+            a = original[1] / original[0]
+            new_v = round(a * desired[0])
+            # Decides which tuple is neccessary depending on W x L or L x W
+            proportions = (desired[0], new_v) if im.height < im.width else (
+                new_v, desired[0])
+            b = round((new_v - desired[1]) / 2)
+            flag = True
+        else:
+            # Decides which tuple is neccessary depending on W x L or L x W
+            proportions = (new_v, desired[1]) if im.height < im.width else (
+                desired[1], new_v)
+            b = round((new_v - desired[0]) / 2)
+            flag = False
+
         try:
             resized = im.resize(proportions, resample=Image.NEAREST)
         except ResizeError:
             print("ERROR: Something went wrong while trying to resize.")
             return False
 
-        # Crops the image on both sides on the non-bottleneck dimension
-        b = round((new_v - desired[0]) / 2)
+        # Crops the image on both sides of necessary dimension
         try:
             if im.height < im.width:
-                cropped = resized.crop((b, 0, new_v - b, desired[1]))
+                # Cropping for images that are initially wider than they are tall
+                if flag:  # If flag is set crop height instead of width
+                    cropped = resized.crop((0, b, desired[0], new_v - b, ))
+                else:
+                    cropped = resized.crop((b, 0, new_v - b, desired[1]))
                 cropped.save(f'{file_name[0]}_{x}x{y}.{file_name[1]}')
             else:
-                cropped = resized.crop((0, b, desired[1], new_v - b))
+                # Cropping for images that are initially taller than they are wide
+                if flag:  # If flag is set crop width instead of height
+                    cropped = resized.crop((b, 0, new_v - b, desired[0]))
+                else:
+                    cropped = resized.crop((0, b, desired[1], new_v - b))
                 cropped.save(f'{file_name[0]}_{y}x{x}.{file_name[1]}')
         except CropError:
             print("ERROR: Something went wrong while try to crop.")
             return False
-
     return True
 
 
